@@ -1,4 +1,6 @@
 import os
+import sys
+import dj_database_url
 
 from pathlib import Path
 from dotenv import load_dotenv
@@ -16,11 +18,13 @@ load_dotenv(override=True)
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 
 if not SECRET_KEY:
-    raise ValueError("The DJANGO_SECRET_KEY environment variable is not set.")
+    raise ValueError('The DJANGO_SECRET_KEY environment variable is not set.')
 
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DJANGO_DEBUG', 'False')
+DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
+
+DEVELOPMENT_MODE = os.getenv('DEVELOPMENT_MODE', 'False').lower() == 'true'
 
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
 
@@ -37,6 +41,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'social_django',
+    'storages',
     'djoser',
     'users',
 ]
@@ -76,29 +81,20 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DB_TYPE = os.getenv('DB_TYPE', 'default')
-
-if DB_TYPE not in ['default', 'postgresql']:
-    raise ValueError("DB_TYPE must be either 'default' or 'postgresql'.")
-
-if DB_TYPE == 'default':
+if DEVELOPMENT_MODE is True:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
         }
     }
-else:
+elif len(sys.argv) > 0 and sys.argv[1] != 'collectstatic':
+    if os.getenv('DATABASE_URL', None) is None:
+        raise Exception('DATABASE_URL environment variable not defined')
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('POSTGRES_DB'),
-            'USER': os.getenv('POSTGRES_USER'),
-            'PASSWORD': os.getenv('POSTGRES_PASSWORD'),
-            'HOST': os.getenv('POSTGRES_HOST'),
-            'PORT': os.getenv('POSTGRES_PORT', 5432),
-        }
+        'default': dj_database_url.parse(os.getenv('DATABASE_URL')),
     }
+
 
 # Custom user model
 AUTH_USER_MODEL = 'users.UserAccount'
@@ -135,10 +131,37 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'static/'
-MEDIA_URL = 'media/'
-MEDIA_ROOT = BASE_DIR / 'media/'
+if DEVELOPMENT_MODE is True:
+    STATIC_URL = 'static/'
+    STATIC_ROOT = BASE_DIR / 'static'
+    MEDIA_URL = 'media/'
+    MEDIA_ROOT = BASE_DIR / 'media'
+else:
+    STORAGES = {
+        'default': {
+            'BACKEND': 'storages.backends.s3.S3Storage',
+            'OPTIONS': {
+                'secret_key': os.getenv('AWS_S3_SECRET_ACCESS_KEY'),
+                'access_key': os.getenv('AWS_S3_ACCESS_KEY_ID'),
+                'bucket_name': os.getenv('AWS_S3_BUCKET_NAME'),
+                'region_name': os.getenv('AWS_S3_REGION_NAME'),
+                'endpoint_url': 'https://{region_name}.digitaloceanspaces.com',
+                'object_parameters': {'CacheControl': 'max-age=86400'},
+                'default_acl': 'public-read',
+                'location': 'static',
+                'custom_domain': os.getenv('AWS_S3_CUSTOM_DOMAIN'),
+            },
+        },
+        'staticfiles': {
+            'OPTIONS': {
+                'secret_key': os.getenv('AWS_S3_SECRET_ACCESS_KEY'),
+                'access_key': os.getenv('AWS_S3_ACCESS_KEY_ID'),
+                'bucket_name': os.getenv('AWS_S3_BUCKET_NAME'),
+                'region_name': os.getenv('AWS_S3_REGION_NAME'),
+                'endpoint_url': 'https://{region_name}.digitaloceanspaces.com'
+            },
+        },
+    }
 
 
 # Default primary key field type
